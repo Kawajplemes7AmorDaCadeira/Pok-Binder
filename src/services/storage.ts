@@ -52,40 +52,69 @@ export class StorageService {
    */
   private static async syncLocalStorageWithIndexedDB(): Promise<void> {
     try {
-      const dbCollection = await CollectionRepository.getAll();
-      if (dbCollection.length > 0) {
-        const legacyItems: CollectionItem[] = dbCollection.map((item) => ({
-          id: item.id,
-          cardId: item.cardPrintId,
-          language: item.language,
-          variant: item.variant,
-          quantity: item.quantity,
-          condition: item.condition,
-          notes: item.notes,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-        }));
-        localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(legacyItems));
+      // 1. Collection
+      const localCollStr = localStorage.getItem(STORAGE_KEYS.COLLECTION);
+      if (localCollStr && localCollStr !== '[]') {
+        try {
+          const parsed: CollectionItem[] = JSON.parse(localCollStr);
+          const entities: CollectionItemEntity[] = parsed.map((i) => ({
+            id: i.id,
+            cardPrintId: i.cardId,
+            quantity: i.quantity,
+            condition: i.condition,
+            variant: i.variant,
+            language: i.language,
+            notes: i.notes,
+            createdAt: i.createdAt,
+            updatedAt: i.updatedAt,
+          }));
+          await CollectionRepository.clearAll();
+          await CollectionRepository.bulkSave(entities);
+        } catch {}
+      } else {
+        const dbCollection = await CollectionRepository.getAll();
+        if (dbCollection.length > 0) {
+          const legacyItems: CollectionItem[] = dbCollection.map((item) => ({
+            id: item.id,
+            cardId: item.cardPrintId,
+            language: item.language,
+            variant: item.variant,
+            quantity: item.quantity,
+            condition: item.condition,
+            notes: item.notes,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+          }));
+          localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(legacyItems));
+        }
       }
 
-      const dbDecks = await DeckRepository.getAll();
-      if (dbDecks.length > 0) {
-        const legacyDecks: Deck[] = dbDecks.map((d) => ({
-          id: d.id,
-          name: d.name,
-          description: d.description,
-          format: (d.format as any) || 'Standard',
-          coverCardId: d.coverCardPrintId,
-          cards: d.cards.map((c) => ({ cardId: c.cardPrintId, quantity: c.quantity })),
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-        }));
-        localStorage.setItem(STORAGE_KEYS.DECKS, JSON.stringify(legacyDecks));
+      // 2. Decks
+      const localDeckStr = localStorage.getItem(STORAGE_KEYS.DECKS);
+      if (!localDeckStr || localDeckStr === '[]') {
+        const dbDecks = await DeckRepository.getAll();
+        if (dbDecks.length > 0) {
+          const legacyDecks: Deck[] = dbDecks.map((d) => ({
+            id: d.id,
+            name: d.name,
+            description: d.description,
+            format: (d.format as any) || 'Standard',
+            coverCardId: d.coverCardPrintId,
+            cards: d.cards.map((c) => ({ cardId: c.cardPrintId, quantity: c.quantity })),
+            createdAt: d.createdAt,
+            updatedAt: d.updatedAt,
+          }));
+          localStorage.setItem(STORAGE_KEYS.DECKS, JSON.stringify(legacyDecks));
+        }
       }
 
-      const dbFavs = await FavoriteRepository.getCardPrintIds();
-      if (dbFavs.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(dbFavs));
+      // 3. Favorites
+      const localFavStr = localStorage.getItem(STORAGE_KEYS.FAVORITES);
+      if (!localFavStr || localFavStr === '[]') {
+        const dbFavs = await FavoriteRepository.getCardPrintIds();
+        if (dbFavs.length > 0) {
+          localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(dbFavs));
+        }
       }
     } catch (e) {
       console.warn('Failed syncLocalStorageWithIndexedDB', e);
@@ -136,7 +165,10 @@ export class StorageService {
         createdAt: i.createdAt,
         updatedAt: i.updatedAt,
       }));
-      CollectionRepository.bulkSave(entities).catch((err) =>
+      (async () => {
+        await CollectionRepository.clearAll();
+        await CollectionRepository.bulkSave(entities);
+      })().catch((err) =>
         console.error('Failed to save collection to IndexedDB', err)
       );
     } catch (e) {
