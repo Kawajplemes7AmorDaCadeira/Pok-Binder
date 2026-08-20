@@ -425,6 +425,9 @@ export class SyncService {
         pendingCount: SyncQueue.getPendingCount(),
         errorMessage: null,
       });
+
+      // Notify UI state to refresh React components with newly pulled cloud data
+      RealtimeSyncService.notifyChange('all', 'SYNC_COMPLETE', null);
     } catch (err: any) {
       console.error('SyncService.syncNow error:', err);
       SyncStatusService.update({

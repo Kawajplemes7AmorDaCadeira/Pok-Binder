@@ -29,6 +29,10 @@ export class RealtimeSyncService {
     };
   }
 
+  public static notifyChange(entityType = 'all', eventType = 'SYNC_COMPLETE', record: any = null): void {
+    this.notify(entityType, eventType, record);
+  }
+
   private static notify(entityType: string, eventType: string, record: any) {
     this.listeners.forEach((cb) => {
       try {

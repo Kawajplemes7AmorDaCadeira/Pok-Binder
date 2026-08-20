@@ -235,6 +235,11 @@ alter table public.trades enable row level security;
 alter table public.processed_sync_operations enable row level security;
 
 -- Drop existing policies if any to avoid errors on rerun
+drop policy if exists "user_collection" on public.collection_items;
+drop policy if exists "user_decks" on public.decks;
+drop policy if exists "user_deck_cards" on public.deck_cards;
+drop policy if exists "user_favorites" on public.favorites;
+
 drop policy if exists "Users can view own profile" on public.profiles;
 drop policy if exists "Users can insert own profile" on public.profiles;
 drop policy if exists "Users can update own profile" on public.profiles;
