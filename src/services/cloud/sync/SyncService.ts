@@ -353,7 +353,7 @@ export class SyncService {
       await this.flushQueue();
 
       // 2. Pull remote collection items
-      const cloudCollection = await SupabaseCollectionRepository.getAll();
+      const cloudCollection = await SupabaseCollectionRepository.getAll(this.activeUserId);
       if (cloudCollection.length > 0) {
         for (const remoteItem of cloudCollection) {
           const localItem = await CollectionRepository.findByCardVariantCondition(
@@ -390,31 +390,31 @@ export class SyncService {
       }
 
       // 3. Pull remote decks
-      const cloudDecks = await SupabaseDeckRepository.getAll();
+      const cloudDecks = await SupabaseDeckRepository.getAll(this.activeUserId);
       for (const cd of cloudDecks) {
         await DeckRepository.save(cd);
       }
 
       // 4. Pull remote favorites
-      const cloudFavs = await SupabaseFavoriteRepository.getAll();
+      const cloudFavs = await SupabaseFavoriteRepository.getAll(this.activeUserId);
       for (const f of cloudFavs) {
         await FavoriteRepository.add(f.cardPrintId);
       }
 
       // 5. Pull remote wishlist
-      const cloudWish = await SupabaseWishlistRepository.getAll();
+      const cloudWish = await SupabaseWishlistRepository.getAll(this.activeUserId);
       for (const w of cloudWish) {
         await WishlistRepository.save(w);
       }
 
       // 6. Pull remote purchases
-      const cloudPurchases = await SupabasePurchaseRepository.getAll();
+      const cloudPurchases = await SupabasePurchaseRepository.getAll(this.activeUserId);
       for (const p of cloudPurchases) {
         await PurchaseRepository.addPurchase(p);
       }
 
       // 7. Pull remote trades
-      const cloudTrades = await SupabaseTradeRepository.getAll();
+      const cloudTrades = await SupabaseTradeRepository.getAll(this.activeUserId);
       for (const t of cloudTrades) {
         await TradeRepository.save(t);
       }

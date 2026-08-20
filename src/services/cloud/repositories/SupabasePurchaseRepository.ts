@@ -7,12 +7,16 @@ import { CardCondition, CardVariant } from '../../../types';
 import { CardPurchaseEntity } from '../../../types/db';
 
 export class SupabasePurchaseRepository {
-  public static async getAll(): Promise<CardPurchaseEntity[]> {
+  public static async getAll(userId?: string): Promise<CardPurchaseEntity[]> {
     const client = getSupabaseClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client.from('card_purchases').select('*');
+      let query = client.from('card_purchases').select('*');
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      const { data, error } = await query;
       if (error || !data) return [];
       return data.map((p) => ({
         id: p.id,

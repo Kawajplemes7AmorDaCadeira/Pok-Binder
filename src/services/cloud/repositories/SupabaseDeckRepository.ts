@@ -8,16 +8,22 @@ import { DeckEntity } from '../../../types/db';
 import { toValidUUID } from '../../../database/idUtils';
 
 export class SupabaseDeckRepository {
-  public static async getAll(): Promise<DeckEntity[]> {
+  public static async getAll(userId?: string): Promise<DeckEntity[]> {
     const client = getSupabaseClient();
     if (!client) return [];
 
     try {
       // 1. Fetch decks
-      const { data: decksData, error: decksError } = await client
+      let decksQuery = client
         .from('decks')
         .select('*')
         .is('deleted_at', null);
+
+      if (userId) {
+        decksQuery = decksQuery.eq('user_id', userId);
+      }
+
+      const { data: decksData, error: decksError } = await decksQuery;
 
       if (decksError || !decksData) return [];
 

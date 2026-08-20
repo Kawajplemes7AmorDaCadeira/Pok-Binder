@@ -1,6 +1,7 @@
 /**
  * AuthContext.tsx
- * Supabase Authentication Provider supporting Google OAuth, Guest Mode, and Session Synchronization.
+ * Authenticated Device & Account Provider using official Supabase Authentication (auth.users).
+ * Supports standard email/password user creation, Google OAuth, and multi-device Sync Code login.
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -8,6 +9,7 @@ import { User } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured, SupabaseService } from '../services/cloud/supabaseClient';
 import { SyncService } from '../services/cloud/sync/SyncService';
 import { LocalMigrationService } from '../services/cloud/sync/LocalMigrationService';
+import { RealtimeSyncService } from '../services/cloud/sync/RealtimeSyncService';
 
 interface AuthContextType {
   user: User | null;
@@ -29,7 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
   }
   return context;
 };
@@ -42,62 +44,51 @@ const getStoredSyncCode = (): string => {
   return 'MEU-BINDER-PRO';
 };
 
-const autoLoginSyncAccount = async (client: any, customCode?: string): Promise<User | null> => {
-  const rawCode = customCode || getStoredSyncCode();
-  const cleanCode = rawCode.replace(/[^A-Z0-9]/gi, '').toLowerCase() || 'meubinderpro';
+/**
+ * Ensures that any device sync code is registered in official Supabase Authentication (auth.users)
+ */
+const authenticateSyncCodeUser = async (client: any, code: string): Promise<User | null> => {
+  const cleanCode = (code || 'MEU-BINDER-PRO').trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'meubinderpro';
   const autoEmail = `binder_${cleanCode}@pokebinder.app`;
   const autoPassword = `Pokebinder_${cleanCode}_2026!Pass`;
 
   try {
-    // 1. Try sign in first
+    // 1. Attempt Sign In first
     const { data: signInData } = await client.auth.signInWithPassword({
       email: autoEmail,
       password: autoPassword,
     });
 
-    if (signInData?.user) {
-      return signInData.user;
-    }
+    if (signInData?.user) return signInData.user;
 
-    // 2. If sign in failed, try sign up
+    // 2. If Sign In failed, create account in official auth.users
     const { data: signUpData } = await client.auth.signUp({
       email: autoEmail,
       password: autoPassword,
+      options: {
+        data: {
+          display_name: `Binder (${code.toUpperCase()})`,
+        },
+      },
     });
 
-    if (signUpData?.user) {
-      return signUpData.user;
-    }
+    if (signUpData?.user) return signUpData.user;
 
-    // 3. Fallback to default user if needed
-    const { data: fallbackData } = await client.auth.signInWithPassword({
-      email: 'kawajplemes7@gmail.com',
-      password: 'Pokebinder123!',
-    });
-
-    return fallbackData?.user || null;
+    return null;
   } catch (err) {
-    console.warn('Auto-login exception:', err);
+    console.warn('Sync code auto-auth exception:', err);
     return null;
   }
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isGuest, setIsGuest] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [isGuest, setIsGuest] = useState<boolean>(false);
   const [syncCode, setSyncCode] = useState<string>(getStoredSyncCode());
 
   useEffect(() => {
     const initAuth = async () => {
-      await SyncService.init();
-
-      if (!isSupabaseConfigured) {
-        setLoading(false);
-        setIsGuest(true);
-        return;
-      }
-
       const client = getSupabaseClient();
       if (!client) {
         setLoading(false);
@@ -105,28 +96,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        // Fetch current session
+        // Fetch existing session
         const { data: { session } } = await client.auth.getSession();
-        let currentUser = session?.user || null;
+        let activeUser = session?.user || null;
 
-        // If no user session, auto-login silently without asking user for credentials!
-        if (!currentUser) {
-          currentUser = await autoLoginSyncAccount(client, syncCode);
+        // If no user, automatically register/login using the active sync code
+        if (!activeUser) {
+          activeUser = await authenticateSyncCodeUser(client, syncCode);
         }
 
-        if (currentUser) {
-          setUser(currentUser);
+        if (activeUser) {
+          setUser(activeUser);
           setIsGuest(false);
-          SyncService.setUser(currentUser.id, currentUser.email || null);
-          LocalMigrationService.migrateToCloud(currentUser.id).catch(() => {});
+          SyncService.setUser(activeUser.id, activeUser.email || null);
+          LocalMigrationService.migrateToCloud(activeUser.id).catch(() => {});
           SyncService.syncNow().catch(() => {});
-        } else {
-          setUser(null);
-          setIsGuest(true);
-          SyncService.setUser(null);
         }
 
-        // Listen for auth state changes
+        // Listen for session changes (OAuth, password login, logout)
         const { data: { subscription } } = client.auth.onAuthStateChange(
           async (_event, newSession) => {
             if (newSession?.user) {
@@ -153,7 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const setSyncCodeAndConnect = async (newCode: string): Promise<{ error?: string }> => {
-    const formatted = newCode.trim().toUpperCase();
+    const formatted = newCode.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
     if (!formatted) {
       return { error: 'Por favor, insira um código válido.' };
     }
@@ -168,76 +155,100 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLoading(true);
     try {
-      const newUser = await autoLoginSyncAccount(client, formatted);
-      if (newUser) {
-        setUser(newUser);
+      const authUser = await authenticateSyncCodeUser(client, formatted);
+      if (authUser) {
+        setUser(authUser);
         setIsGuest(false);
-        SyncService.setUser(newUser.id, newUser.email || null);
-        await LocalMigrationService.migrateToCloud(newUser.id).catch(() => {});
+        SyncService.setUser(authUser.id, authUser.email || null);
+        await LocalMigrationService.migrateToCloud(authUser.id).catch(() => {});
         await SyncService.syncNow().catch(() => {});
+        RealtimeSyncService.notifyChange('all', 'SYNC_COMPLETE', null);
         return {};
       }
-      return { error: 'Não foi possível conectar com esse código.' };
+      return { error: 'Não foi possível conectar com este código.' };
     } catch (e: any) {
-      return { error: e?.message || 'Erro ao conectar.' };
+      return { error: e?.message || 'Erro ao conectar com código.' };
     } finally {
       setLoading(false);
     }
   };
 
-  const signInWithGoogle = async (): Promise<{ error?: string }> => {
-    if (!isSupabaseConfigured) {
-      return { error: 'Supabase não configurado. Verifique as credenciais no .env' };
-    }
-    const res = await SupabaseService.signInWithGoogle();
-    if (res.error) return { error: res.error };
-    return {};
-  };
-
-  const signInWithPassword = async (email: string, password: string): Promise<{ error?: string }> => {
-    if (!isSupabaseConfigured) {
-      return { error: 'Supabase não configurado.' };
-    }
-    const res = await SupabaseService.signInWithPassword(email, password);
-    if (res.error) return { error: res.error };
-    if (res.user) {
-      setUser(res.user);
-      setIsGuest(false);
-      SyncService.setUser(res.user.id, res.user.email || null);
-      await LocalMigrationService.migrateToCloud(res.user.id).catch(() => {});
-      await SyncService.syncNow().catch(() => {});
-    }
-    return {};
-  };
-
+  /**
+   * Creates a user in the official Supabase Authentication table (auth.users)
+   */
   const signUp = async (email: string, password: string, displayName?: string): Promise<{ error?: string }> => {
-    if (!isSupabaseConfigured) {
-      return { error: 'Supabase não configurado.' };
+    setLoading(true);
+    try {
+      const res = await SupabaseService.signUp(email, password, displayName);
+      if (res.error) return { error: res.error };
+      if (res.user) {
+        setUser(res.user);
+        setIsGuest(false);
+        SyncService.setUser(res.user.id, res.user.email || null);
+        await LocalMigrationService.migrateToCloud(res.user.id).catch(() => {});
+        await SyncService.syncNow().catch(() => {});
+      }
+      return {};
+    } finally {
+      setLoading(false);
     }
-    const res = await SupabaseService.signUp(email, password, displayName);
-    if (res.error) return { error: res.error };
-    if (res.user) {
-      setUser(res.user);
-      setIsGuest(false);
-      SyncService.setUser(res.user.id, res.user.email || null);
-      await LocalMigrationService.migrateToCloud(res.user.id).catch(() => {});
-      await SyncService.syncNow().catch(() => {});
+  };
+
+  /**
+   * Signs in an existing user from the official Supabase Authentication table (auth.users)
+   */
+  const signInWithPassword = async (email: string, password: string): Promise<{ error?: string }> => {
+    setLoading(true);
+    try {
+      const res = await SupabaseService.signInWithPassword(email, password);
+      if (res.error) return { error: res.error };
+      if (res.user) {
+        setUser(res.user);
+        setIsGuest(false);
+        SyncService.setUser(res.user.id, res.user.email || null);
+        await LocalMigrationService.migrateToCloud(res.user.id).catch(() => {});
+        await SyncService.syncNow().catch(() => {});
+      }
+      return {};
+    } finally {
+      setLoading(false);
     }
-    return {};
   };
 
   const signInWithOtp = async (email: string): Promise<{ error?: string }> => {
-    if (!isSupabaseConfigured) {
-      return { error: 'Supabase não configurado.' };
-    }
     return SupabaseService.signInWithOtp(email);
   };
 
+  const signInWithGoogle = async (): Promise<{ error?: string }> => {
+    const res = await SupabaseService.signInWithGoogle();
+    if (res.error) return { error: res.error };
+    if (res.url && typeof window !== 'undefined') {
+      window.location.href = res.url;
+    }
+    return {};
+  };
+
   const signOut = async () => {
-    await SupabaseService.signOut();
-    setUser(null);
-    setIsGuest(true);
-    SyncService.setUser(null);
+    setLoading(true);
+    try {
+      await SupabaseService.signOut();
+      const defaultCode = 'MEU-BINDER-PRO';
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('POKEBINDER_SYNC_CODE');
+      }
+      setSyncCode(defaultCode);
+      const client = getSupabaseClient();
+      if (client) {
+        const syncUser = await authenticateSyncCodeUser(client, defaultCode);
+        if (syncUser) {
+          setUser(syncUser);
+          SyncService.setUser(syncUser.id, syncUser.email || null);
+          SyncService.syncNow().catch(() => {});
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const continueAsGuest = () => {

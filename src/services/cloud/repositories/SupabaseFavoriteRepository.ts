@@ -6,12 +6,16 @@ import { getSupabaseClient } from '../supabaseClient';
 import { FavoriteEntity } from '../../../types/db';
 
 export class SupabaseFavoriteRepository {
-  public static async getAll(): Promise<FavoriteEntity[]> {
+  public static async getAll(userId?: string): Promise<FavoriteEntity[]> {
     const client = getSupabaseClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client.from('favorites').select('*');
+      let query = client.from('favorites').select('*');
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      const { data, error } = await query;
       if (error || !data) return [];
       return data.map((f) => ({
         id: f.id,

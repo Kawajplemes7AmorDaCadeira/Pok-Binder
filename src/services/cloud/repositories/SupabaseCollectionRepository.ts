@@ -21,15 +21,21 @@ export class SupabaseCollectionRepository {
   /**
    * Fetch all active collection items for the authenticated user
    */
-  public static async getAll(): Promise<CollectionItemEntity[]> {
+  public static async getAll(userId?: string): Promise<CollectionItemEntity[]> {
     const client = getSupabaseClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client
+      let query = client
         .from('collection_items')
         .select('*')
         .is('deleted_at', null);
+
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         this.checkSchemaError(error);
@@ -59,6 +65,7 @@ export class SupabaseCollectionRepository {
     delta: number;
     notes?: string;
     itemId?: string;
+    userId?: string;
   }): Promise<CollectionItemEntity | null> {
     const client = getSupabaseClient();
     if (!client) return null;
@@ -76,12 +83,13 @@ export class SupabaseCollectionRepository {
 
       if (error) {
         // Fallback to direct table query & upsert
-        const { data: { user } } = await client.auth.getUser();
-        if (!user) return null;
+        const effectiveUserId = params.userId || (await client.auth.getUser()).data.user?.id;
+        if (!effectiveUserId) return null;
 
         const { data: existingRows } = await client
           .from('collection_items')
           .select('*')
+          .eq('user_id', effectiveUserId)
           .eq('card_id', params.cardId)
           .eq('variant', params.variant)
           .eq('condition', params.condition)
@@ -97,7 +105,7 @@ export class SupabaseCollectionRepository {
           .from('collection_items')
           .upsert({
             id: rowId,
-            user_id: user.id,
+            user_id: effectiveUserId,
             card_id: params.cardId,
             variant: params.variant,
             condition: params.condition,

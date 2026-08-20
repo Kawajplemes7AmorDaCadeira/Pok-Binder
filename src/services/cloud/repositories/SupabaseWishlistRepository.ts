@@ -6,12 +6,16 @@ import { getSupabaseClient } from '../supabaseClient';
 import { WishlistItemEntity } from '../../../types/db';
 
 export class SupabaseWishlistRepository {
-  public static async getAll(): Promise<WishlistItemEntity[]> {
+  public static async getAll(userId?: string): Promise<WishlistItemEntity[]> {
     const client = getSupabaseClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client.from('wishlist_items').select('*').is('deleted_at', null);
+      let query = client.from('wishlist_items').select('*').is('deleted_at', null);
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      const { data, error } = await query;
       if (error || !data) return [];
       return data.map((w) => ({
         id: w.id,

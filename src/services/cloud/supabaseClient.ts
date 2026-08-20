@@ -115,14 +115,76 @@ export class SupabaseService {
     }
 
     try {
-      const { error } = await client.from('profiles').select('id').limit(1);
-      if (error && error.code !== 'PGRST116') {
-        return { connected: false, error: error.message };
+      const { error } = await client.from('collection_items').select('id').limit(1);
+      if (error && (error.code === 'PGRST205' || error.code === '42P01')) {
+        return { connected: false, error: 'Tabelas do banco de dados ainda não foram criadas no Supabase.' };
       }
       return { connected: true };
     } catch (err: any) {
       return { connected: false, error: err.message || 'Erro de conexão com o Supabase' };
     }
+  }
+
+  /**
+   * Comprehensive table schema verifier for all 8 required application tables
+   */
+  public static async verifyAllTablesExist(): Promise<{
+    connected: boolean;
+    allTablesExist: boolean;
+    missingTables: string[];
+    existingTables: string[];
+    error?: string;
+  }> {
+    const client = getSupabaseClient();
+    const tablesToCheck = [
+      'collection_items',
+      'decks',
+      'deck_cards',
+      'favorites',
+      'wishlist_items',
+      'card_purchases',
+      'trades',
+      'processed_sync_operations',
+    ];
+
+    if (!client) {
+      return {
+        connected: false,
+        allTablesExist: false,
+        missingTables: tablesToCheck,
+        existingTables: [],
+        error: 'Cliente Supabase não configurado.',
+      };
+    }
+
+    const missingTables: string[] = [];
+    const existingTables: string[] = [];
+
+    for (const table of tablesToCheck) {
+      try {
+        const { error } = await client.from(table).select('id').limit(1);
+        if (
+          error &&
+          (error.code === 'PGRST205' ||
+            error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('schema cache'))
+        ) {
+          missingTables.push(table);
+        } else {
+          existingTables.push(table);
+        }
+      } catch {
+        missingTables.push(table);
+      }
+    }
+
+    return {
+      connected: true,
+      allTablesExist: missingTables.length === 0,
+      missingTables,
+      existingTables,
+    };
   }
 
   /**

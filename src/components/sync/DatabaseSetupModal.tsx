@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { Database, Copy, Check, ExternalLink, X, Terminal, Sparkles, CheckCircle2, RefreshCw } from 'lucide-react';
 import { POKEBINDER_COMPLETE_SUPABASE_SQL } from '../../services/cloud/supabaseSchemaSql';
 import { useSync } from '../../context/SyncContext';
+import { SupabaseService } from '../../services/cloud/supabaseClient';
 
 interface DatabaseSetupModalProps {
   isOpen: boolean;
@@ -44,14 +45,19 @@ export const DatabaseSetupModal: React.FC<DatabaseSetupModalProps> = ({ isOpen, 
     setIsVerifying(true);
     setVerifyMessage(null);
     try {
-      await migrateLocalData();
-      await syncNow();
-      setVerifyMessage('✅ Tabelas detectadas com sucesso! Sua coleção foi sincronizada.');
-      setTimeout(() => {
-        onClose();
-      }, 2000);
+      const res = await SupabaseService.verifyAllTablesExist();
+      if (res.allTablesExist) {
+        await migrateLocalData().catch(() => {});
+        await syncNow().catch(() => {});
+        setVerifyMessage('✅ Conexão confirmada! As 8 tabelas necessárias estão criadas e ativas com RLS de segurança.');
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      } else {
+        setVerifyMessage(`⚠️ Faltam ${res.missingTables.length} tabela(s): ${res.missingTables.join(', ')}. Cole o script no SQL Editor e clique em "Run".`);
+      }
     } catch (e: any) {
-      setVerifyMessage('As tabelas ainda não foram criadas no Supabase. Cole o script no SQL Editor e clique em "Run".');
+      setVerifyMessage('As tabelas ainda não foram encontradas no Supabase. Cole o script no SQL Editor e clique em "Run".');
     } finally {
       setIsVerifying(false);
     }

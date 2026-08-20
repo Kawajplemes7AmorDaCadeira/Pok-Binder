@@ -6,12 +6,16 @@ import { getSupabaseClient } from '../supabaseClient';
 import { TradeItemEntity } from '../../../types/db';
 
 export class SupabaseTradeRepository {
-  public static async getAll(): Promise<TradeItemEntity[]> {
+  public static async getAll(userId?: string): Promise<TradeItemEntity[]> {
     const client = getSupabaseClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client.from('trades').select('*').is('deleted_at', null);
+      let query = client.from('trades').select('*').is('deleted_at', null);
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      const { data, error } = await query;
       if (error || !data) return [];
       return data.map((t) => ({
         id: t.id,
