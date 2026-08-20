@@ -5,37 +5,84 @@
 
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
-// Safe environment variable resolution across Vite and Node.js test runners
-const getEnvVar = (key: string): string => {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env[key]) {
-    return (import.meta as any).env[key];
+// Safe environment variable resolution across Vite, Node.js test runners and localStorage overrides
+export const getSupabaseConfig = (): { url: string; anonKey: string } => {
+  let url = '';
+  let anonKey = '';
+
+  if (typeof localStorage !== 'undefined') {
+    url = localStorage.getItem('POKEBINDER_SUPABASE_URL') || '';
+    anonKey = localStorage.getItem('POKEBINDER_SUPABASE_ANON_KEY') || '';
   }
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key] as string;
+
+  if (!url) {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_SUPABASE_URL) {
+      url = (import.meta as any).env.VITE_SUPABASE_URL;
+    } else if (typeof process !== 'undefined' && process.env && process.env.VITE_SUPABASE_URL) {
+      url = process.env.VITE_SUPABASE_URL;
+    }
   }
-  return '';
+
+  if (!url || url === 'https://your-project.supabase.co') {
+    url = 'https://hefrdbyqchvvvqyacbkm.supabase.co';
+  }
+
+  if (!anonKey) {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_SUPABASE_ANON_KEY) {
+      anonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+    } else if (typeof process !== 'undefined' && process.env && process.env.VITE_SUPABASE_ANON_KEY) {
+      anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+    }
+  }
+
+  if (!anonKey || anonKey === 'your-anon-public-key' || anonKey === 'your-anon-public-key-here') {
+    anonKey = 'sb_publishable_nNOtomjofTIbkBvMFcpDIA_q4ZNwi6k';
+  }
+
+  return { url, anonKey };
 };
 
-const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
-const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
+const initialConfig = getSupabaseConfig();
+export const supabaseUrl = initialConfig.url;
+export const supabaseAnonKey = initialConfig.anonKey;
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
     supabaseAnonKey &&
     supabaseUrl !== 'https://your-project.supabase.co' &&
-    !supabaseUrl.includes('placeholder')
+    !supabaseUrl.includes('placeholder') &&
+    supabaseAnonKey !== 'your-anon-public-key' &&
+    supabaseAnonKey !== 'your-anon-public-key-here'
 );
 
 let clientInstance: SupabaseClient | null = null;
 
+export function setCustomSupabaseCredentials(url: string, anonKey: string): void {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('POKEBINDER_SUPABASE_URL', url.trim());
+    localStorage.setItem('POKEBINDER_SUPABASE_ANON_KEY', anonKey.trim());
+  }
+  clientInstance = null;
+}
+
 export function getSupabaseClient(): SupabaseClient | null {
-  if (!isSupabaseConfigured) {
+  const { url, anonKey } = getSupabaseConfig();
+  const configured = Boolean(
+    url &&
+    anonKey &&
+    url !== 'https://your-project.supabase.co' &&
+    !url.includes('placeholder') &&
+    anonKey !== 'your-anon-public-key' &&
+    anonKey !== 'your-anon-public-key-here'
+  );
+
+  if (!configured) {
     return null;
   }
 
   if (!clientInstance) {
     try {
-      clientInstance = createClient(supabaseUrl, supabaseAnonKey, {
+      clientInstance = createClient(url, anonKey, {
         auth: {
           persistSession: true,
           autoRefreshToken: true,

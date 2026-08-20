@@ -1,15 +1,51 @@
 import React, { useState } from 'react';
-import { User, Cloud, RefreshCw, LogOut, Download, CheckCircle2, CloudOff, AlertCircle } from 'lucide-react';
+import { User, Cloud, RefreshCw, LogOut, Download, CheckCircle2, CloudOff, AlertCircle, Key, ExternalLink, Copy, Database } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { BackupService } from '../../services/backup/backupService';
 import { MigrationWizardModal } from './MigrationWizardModal';
+import { setCustomSupabaseCredentials, getSupabaseConfig, SupabaseService } from '../../services/cloud/supabaseClient';
 
 export const AccountSettingsSection: React.FC = () => {
   const { user, isConfigured, isGuest, signInWithGoogle, signOut } = useAuth();
   const { status, syncNow } = useSync();
   const [isMigrationOpen, setIsMigrationOpen] = useState(false);
   const [isSyncingLocal, setIsSyncingLocal] = useState(false);
+
+  const currentConfig = getSupabaseConfig();
+  const [anonKeyInput, setAnonKeyInput] = useState(currentConfig.anonKey || '');
+  const [projectUrlInput, setProjectUrlInput] = useState(currentConfig.url || 'https://hefrdbyqchvvvqyacbkm.supabase.co');
+  const [configSuccess, setConfigSuccess] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [showConfigDetails, setShowConfigDetails] = useState(!isConfigured);
+
+  const handleSaveCredentials = async () => {
+    if (!anonKeyInput.trim()) {
+      setConfigError('Por favor, informe a chave Anon Public Key do Supabase.');
+      return;
+    }
+    setConfigError(null);
+    setConfigSuccess(null);
+    setIsTesting(true);
+
+    try {
+      setCustomSupabaseCredentials(projectUrlInput.trim(), anonKeyInput.trim());
+      const test = await SupabaseService.checkConnection();
+      if (test.connected) {
+        setConfigSuccess('Supabase conectado com sucesso! Recarregando estado...');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      } else {
+        setConfigError(test.error || 'Credenciais salvas, mas o banco ainda não respondeu.');
+      }
+    } catch (e: any) {
+      setConfigError(e?.message || 'Falha ao validar credenciais.');
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const handleSyncNow = async () => {
     setIsSyncingLocal(true);
@@ -49,7 +85,7 @@ export const AccountSettingsSection: React.FC = () => {
                 {user ? user.email : 'Modo Convidado (Local)'}
               </h4>
               <p className="text-slate-400 text-xs">
-                {user ? 'Conta conectada ao Supabase' : 'Dados salvos apenas neste navegador'}
+                {user ? 'Conta conectada ao Supabase' : 'Dados salvos localmente no navegador'}
               </p>
             </div>
           </div>
@@ -70,7 +106,12 @@ export const AccountSettingsSection: React.FC = () => {
               <User className="w-3.5 h-3.5" /> Entrar com Google
             </button>
           ) : (
-            <span className="text-[11px] text-amber-400 font-semibold">Supabase pendente .env</span>
+            <button
+              onClick={() => setShowConfigDetails(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5"
+            >
+              <Key className="w-3.5 h-3.5" /> Configurar Chave
+            </button>
           )}
         </div>
 
@@ -107,6 +148,83 @@ export const AccountSettingsSection: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Supabase Project Credentials & Setup Box */}
+      <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Database className="w-4 h-4 text-emerald-400" />
+            <h4 className="text-white font-bold text-xs">Projeto Supabase</h4>
+          </div>
+          <a
+            href="https://supabase.com/dashboard/project/hefrdbyqchvvvqyacbkm/settings/api"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold"
+          >
+            Abrir Chaves API <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+
+        <div className="space-y-2.5 text-xs">
+          <div>
+            <label className="text-[11px] text-slate-400 font-medium block mb-1">Project URL</label>
+            <input
+              type="text"
+              value={projectUrlInput}
+              onChange={(e) => setProjectUrlInput(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 outline-none focus:border-emerald-500"
+              placeholder="https://hefrdbyqchvvvqyacbkm.supabase.co"
+            />
+          </div>
+
+          <div>
+            <label className="text-[11px] text-slate-400 font-medium block mb-1">
+              Anon Public Key (<code className="text-emerald-400">anon</code> / <code className="text-slate-300">public</code>)
+            </label>
+            <input
+              type="password"
+              value={anonKeyInput}
+              onChange={(e) => setAnonKeyInput(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 outline-none focus:border-emerald-500"
+              placeholder="Cole sua anon key aqui (eyJhbGciOi...)"
+            />
+          </div>
+
+          {configError && (
+            <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-800/80 text-red-300 text-[11px] flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{configError}</span>
+            </div>
+          )}
+
+          {configSuccess && (
+            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/80 text-emerald-300 text-[11px] flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{configSuccess}</span>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleSaveCredentials}
+              disabled={isTesting}
+              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
+              {isTesting ? 'Testando Conexão...' : 'Salvar & Validar Conexão'}
+            </button>
+            <a
+              href="https://supabase.com/dashboard/project/hefrdbyqchvvvqyacbkm/sql/new"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 transition-colors"
+            >
+              SQL Editor <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* Cloud & Local Actions */}
