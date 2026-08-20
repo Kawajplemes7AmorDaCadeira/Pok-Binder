@@ -1,0 +1,16 @@
+{
+  "name": "PokéBinder",
+  "short_name": "PokéBinder",
+  "description": "Coleção, Fichário 3x3 e Construtor de Decks Pokémon TCG",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#dc2626",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "PokéBinder",
+  "description": "Gerenciamento de coleção, fichário digital 3x3 e construtor de decks de Pokémon TCG",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
