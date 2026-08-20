@@ -8,6 +8,9 @@ import { WishlistRepository } from '../database/repositories/WishlistRepository'
 import { TradeRepository } from '../database/repositories/TradeRepository';
 import { db } from '../database/database';
 import { WishlistItemEntity, TradeItemEntity } from '../types/db';
+import { SyncQueue } from '../services/cloud/sync/SyncQueue';
+import { SyncService } from '../services/cloud/sync/SyncService';
+import { RealtimeSyncService } from '../services/cloud/sync/RealtimeSyncService';
 
 interface GlobalStateContextType {
   collection: CollectionItem[];
@@ -41,6 +44,9 @@ interface GlobalStateContextType {
   saveTradeItem: (cardId: string, quantity: number, variant?: CardVariant, condition?: CardCondition, price?: number) => Promise<void>;
   removeTradeItem: (id: string) => Promise<void>;
   
+  // Refresh helper
+  refreshData: () => Promise<void>;
+
   // Bulk Transaction
   importBackupSafe: (backupData: {
     collection: any[];
@@ -79,10 +85,8 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const loadAllData = async () => {
     try {
       setLoading(true);
-      // Wait for StorageService init
       await StorageService.init();
 
-      // Read from localStorage defaults or async fallback to Dexie repos
       const localColl = StorageService.getCollection();
       setCollection(localColl);
 
@@ -92,7 +96,6 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const localFavs = StorageService.getFavorites();
       setFavorites(localFavs);
 
-      // Async fetch of database tables for wishlist & trade item state
       const wishs = await WishlistRepository.getAll();
       setWishlist(wishs);
 
@@ -107,6 +110,15 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   useEffect(() => {
     loadAllData();
+
+    // Listen for Realtime cloud updates from other devices (e.g. mobile scan arriving on PC)
+    const unsub = RealtimeSyncService.addListener(() => {
+      loadAllData();
+    });
+
+    return () => {
+      unsub();
+    };
   }, []);
 
   // 2. Settings Synchronizers
@@ -118,14 +130,26 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } else {
       document.documentElement.classList.remove('dark');
     }
+    SyncQueue.enqueue({
+      entityType: 'user_settings',
+      action: 'UPSERT',
+      data: { theme: t, preferredLanguage },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   const setPreferredLanguage = (lang: CardLanguage) => {
     setPreferredLanguageState(lang);
     StorageService.saveSettings({ theme, preferredLanguage: lang });
+    SyncQueue.enqueue({
+      entityType: 'user_settings',
+      action: 'UPSERT',
+      data: { theme, preferredLanguage: lang },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
-  // 3. Collection Updates
+  // 3. Collection Updates with Optimistic Local-First + SyncQueue + Atomic Server RPC
   const updateCardQuantity = async (
     cardId: string,
     delta: number,
@@ -133,13 +157,52 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     language: CardLanguage = 'pt',
     condition: CardCondition = 'near_mint'
   ) => {
+    // 1. Optimistic Local Write
     const updatedCollection = StorageService.updateCardQuantity(cardId, delta, variant, language, condition);
     setCollection(updatedCollection);
+
+    // 2. Enqueue Atomic Sync Operation
+    if (delta > 0) {
+      SyncQueue.enqueue({
+        entityType: 'collection',
+        action: 'INCREMENT',
+        data: {
+          cardId,
+          variant,
+          condition,
+          language,
+          delta,
+        },
+      });
+    } else {
+      SyncQueue.enqueue({
+        entityType: 'collection',
+        action: 'DECREMENT',
+        data: {
+          cardId,
+          variant,
+          condition,
+          language,
+          delta: Math.abs(delta),
+        },
+      });
+    }
+
+    // 3. Trigger async cloud flush
+    SyncService.flushQueue().catch(() => {});
   };
 
   const toggleFavorite = async (cardId: string) => {
     const updatedFavs = StorageService.toggleFavorite(cardId);
     setFavorites(updatedFavs);
+
+    const isFav = updatedFavs.includes(cardId);
+    SyncQueue.enqueue({
+      entityType: 'favorite',
+      action: isFav ? 'UPSERT' : 'DELETE',
+      data: { cardId, isFavorite: isFav },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   const clearCollection = async () => {
@@ -156,11 +219,32 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const saveDeck = async (deck: Deck) => {
     const updatedDecks = StorageService.saveDeck(deck);
     setDecks(updatedDecks);
+
+    SyncQueue.enqueue({
+      entityType: 'deck',
+      action: 'UPSERT',
+      data: {
+        id: deck.id,
+        name: deck.name,
+        description: deck.description,
+        format: deck.format,
+        coverCardId: deck.coverCardId,
+        cards: deck.cards.map((c) => ({ cardId: c.cardId, quantity: c.quantity })),
+      },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   const deleteDeck = async (deckId: string) => {
     const updatedDecks = StorageService.deleteDeck(deckId);
     setDecks(updatedDecks);
+
+    SyncQueue.enqueue({
+      entityType: 'deck',
+      action: 'DELETE',
+      data: { id: deckId },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   // 5. Wishlist Actions
@@ -170,7 +254,7 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     priority: 'low' | 'medium' | 'high' = 'medium',
     notes = ''
   ) => {
-    await WishlistRepository.save({
+    const saved = await WishlistRepository.save({
       cardPrintId: cardId,
       desiredQuantity: quantity,
       priority,
@@ -178,12 +262,33 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
     const wishs = await WishlistRepository.getAll();
     setWishlist(wishs);
+
+    SyncQueue.enqueue({
+      entityType: 'wishlist',
+      action: 'UPSERT',
+      data: {
+        id: saved.id,
+        cardId,
+        variant: 'normal',
+        priority,
+        quantity,
+        notes,
+      },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   const removeWishlistItem = async (id: string) => {
     await db.wishlist.delete(id);
     const wishs = await WishlistRepository.getAll();
     setWishlist(wishs);
+
+    SyncQueue.enqueue({
+      entityType: 'wishlist',
+      action: 'DELETE',
+      data: { id },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   // 6. Trade Binder Actions
@@ -194,19 +299,40 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     condition: CardCondition = 'near_mint',
     price?: number
   ) => {
-    await TradeRepository.save({
+    const saved = await TradeRepository.save({
       cardPrintId: cardId,
       availableQuantity: quantity,
       notes: `Variant: ${variant}, Condition: ${condition}, Price: ${price || 'N/A'}`,
     });
     const trades = await TradeRepository.getAll();
     setTradeBinder(trades);
+
+    SyncQueue.enqueue({
+      entityType: 'trade',
+      action: 'UPSERT',
+      data: {
+        id: saved.id,
+        cardId,
+        variant,
+        condition,
+        quantity,
+        price,
+      },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   const removeTradeItem = async (id: string) => {
     await db.tradeItems.delete(id);
     const trades = await TradeRepository.getAll();
     setTradeBinder(trades);
+
+    SyncQueue.enqueue({
+      entityType: 'trade',
+      action: 'DELETE',
+      data: { id },
+    });
+    SyncService.flushQueue().catch(() => {});
   };
 
   // 7. Bulk Transaction safety for complete imports
@@ -218,7 +344,6 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     tradeItems?: any[];
   }): Promise<boolean> => {
     try {
-      // Execute as atomic Dexie transaction to prevent partial state corruption
       await db.transaction('rw', [
         db.collectionItems,
         db.decks,
@@ -226,17 +351,15 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
         db.wishlist,
         db.tradeItems
       ], async () => {
-        // Clear all existing
         await db.collectionItems.clear();
         await db.decks.clear();
         await db.favorites.clear();
         await db.wishlist.clear();
         await db.tradeItems.clear();
 
-        // Bulk insert entities
         if (backupData.collection?.length) {
           const entities = backupData.collection.map((i: any) => ({
-            id: i.id || `col_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            id: i.id || `col_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             cardPrintId: i.cardId,
             quantity: i.quantity,
             variant: i.variant || 'normal',
@@ -274,7 +397,7 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
         if (backupData.wishlist?.length) {
           const entities = backupData.wishlist.map((w: any) => ({
-            id: w.id || `wish_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            id: w.id || `wish_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             cardPrintId: w.cardPrintId || w.cardId,
             priority: w.priority || 'medium',
             desiredQuantity: w.desiredQuantity || w.quantity || 1,
@@ -287,7 +410,7 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
         if (backupData.tradeItems?.length) {
           const entities: TradeItemEntity[] = backupData.tradeItems.map((t: any) => ({
-            id: t.id || `trade_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            id: t.id || `trade_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             cardPrintId: t.cardPrintId || t.cardId,
             availableQuantity: t.availableQuantity || t.quantity || 1,
             notes: t.notes || `Variant: ${t.variant || 'normal'}, Condition: ${t.condition || 'near_mint'}${t.price ? `, Price: ${t.price}` : ''}`,
@@ -297,12 +420,10 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       });
 
-      // Synchronize to LocalStorage for fallback
       StorageService.saveCollection(backupData.collection || []);
       StorageService.saveDecks(backupData.decks || []);
-      localStorage.setItem(Storage_Keys_Fallback.FAVORITES, JSON.stringify(backupData.favorites || []));
+      localStorage.setItem('pokebinder_favorites', JSON.stringify(backupData.favorites || []));
 
-      // Trigger hot state update across the react app
       await loadAllData();
       return true;
     } catch (err) {
@@ -334,15 +455,11 @@ export const GlobalStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
         removeWishlistItem,
         saveTradeItem,
         removeTradeItem,
+        refreshData: loadAllData,
         importBackupSafe,
       }}
     >
       {children}
     </GlobalStateContext.Provider>
   );
-};
-
-// Fallback keys helper inside Context
-const Storage_Keys_Fallback = {
-  FAVORITES: 'pokebinder_favorites',
 };

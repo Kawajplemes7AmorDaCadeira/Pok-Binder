@@ -12,6 +12,8 @@ import { TradeRepository } from '../database/repositories/TradeRepository';
 import { SyncEngine } from '../services/sync/syncEngine';
 import { BackupService } from '../services/backup/backupService';
 import { AdminDashboardService } from '../services/admin/adminDashboardService';
+import { runScannerTests } from './scanner.test';
+import { runSupabaseSyncTests } from './supabaseSync.test';
 
 async function runMasterTestRunner() {
   console.log('===========================================================');
@@ -147,6 +149,26 @@ async function runMasterTestRunner() {
     assert(overview.healthCheck.catalogHealthStatus === 'healthy', 'Phase 6: Admin Dashboard Overview verified');
   } catch (e) {
     assert(false, `Phase 6 failed: ${e}`);
+  }
+
+  // --- SCANNER TCG: COMPUTER VISION, OCR & CARD MATCHER ---
+  console.log('\n--- SCANNER TCG: COMPUTER VISION, OCR & CARD MATCHER ---');
+  try {
+    const scannerResult = await runScannerTests();
+    passed += scannerResult.passed;
+    failed += scannerResult.failed;
+  } catch (e) {
+    assert(false, `Scanner test suite failed: ${e}`);
+  }
+
+  // --- SUPABASE CLOUD SYNC & LOCAL-FIRST REPLICATION ---
+  console.log('\n--- SUPABASE CLOUD SYNC & LOCAL-FIRST REPLICATION ---');
+  try {
+    const syncResult = await runSupabaseSyncTests();
+    passed += syncResult.passed;
+    failed += syncResult.failed;
+  } catch (e) {
+    assert(false, `Supabase sync test suite failed: ${e}`);
   }
 
   console.log('\n===========================================================');

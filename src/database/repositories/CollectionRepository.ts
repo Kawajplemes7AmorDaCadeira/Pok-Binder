@@ -21,6 +21,31 @@ export class CollectionRepository {
   }
 
   /**
+   * Find item by unique physical attributes
+   */
+  public static async findByCardVariantCondition(
+    cardPrintId: string,
+    variant: CardVariant = 'normal',
+    condition: CardCondition = 'near_mint',
+    language: CardLanguage = 'pt'
+  ): Promise<CollectionItemEntity | null> {
+    const item = await db.collectionItems
+      .where('cardPrintId')
+      .equals(cardPrintId)
+      .filter((i) => i.variant === variant && i.condition === condition && i.language === language)
+      .first();
+
+    return item || null;
+  }
+
+  /**
+   * Delete item by ID
+   */
+  public static async delete(id: string): Promise<void> {
+    await db.collectionItems.delete(id);
+  }
+
+  /**
    * Get items by card print ID
    */
   public static async getByCardPrintId(cardPrintId: string): Promise<CollectionItemEntity[]> {

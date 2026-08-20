@@ -17,6 +17,25 @@ export class FavoriteRepository {
     return !!fav;
   }
 
+  public static async add(cardPrintId: string): Promise<void> {
+    const exists = await this.isFavorite(cardPrintId);
+    if (!exists) {
+      const newFav: FavoriteEntity = {
+        id: generateUUID(),
+        cardPrintId,
+        createdAt: new Date().toISOString(),
+      };
+      await db.favorites.put(newFav);
+    }
+  }
+
+  public static async remove(cardPrintId: string): Promise<void> {
+    const fav = await db.favorites.where('cardPrintId').equals(cardPrintId).first();
+    if (fav) {
+      await db.favorites.delete(fav.id);
+    }
+  }
+
   public static async toggle(cardPrintId: string): Promise<string[]> {
     const existing = await db.favorites.where('cardPrintId').equals(cardPrintId).first();
     if (existing) {
