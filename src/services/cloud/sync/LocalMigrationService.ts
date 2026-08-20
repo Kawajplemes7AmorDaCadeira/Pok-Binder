@@ -131,7 +131,22 @@ export class LocalMigrationService {
 
     try {
       // Step 2: Migrate Collection Items
-      const localCollection = await CollectionRepository.getAll();
+      let localCollection = await CollectionRepository.getAll();
+      if (localCollection.length === 0) {
+        const rawCollection = StorageService.getCollection();
+        localCollection = rawCollection.map((i) => ({
+          id: i.id,
+          cardPrintId: i.cardId,
+          variant: i.variant || 'normal',
+          condition: i.condition || 'near_mint',
+          language: i.language || 'pt',
+          quantity: i.quantity || 1,
+          notes: i.notes,
+          createdAt: i.createdAt || new Date().toISOString(),
+          updatedAt: i.updatedAt || new Date().toISOString(),
+        }));
+      }
+
       if (localCollection.length > 0) {
         const ok = await SupabaseCollectionRepository.bulkUpsert(localCollection, userId);
         if (ok) {

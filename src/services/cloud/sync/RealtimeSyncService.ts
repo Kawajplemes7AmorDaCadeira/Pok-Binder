@@ -39,6 +39,12 @@ export class RealtimeSyncService {
     });
   }
 
+  public static subscribeToRemoteUpdates(cb: () => void): () => void {
+    return this.addListener(() => {
+      cb();
+    });
+  }
+
   public static subscribe(userId: string): void {
     const client = getSupabaseClient();
     if (!client || (this.channel && this.subscribedUserId === userId)) {
@@ -57,7 +63,7 @@ export class RealtimeSyncService {
         {
           event: '*',
           schema: 'public',
-          table: 'collection',
+          table: 'collection_items',
           filter: `user_id=eq.${userId}`,
         },
         async (payload) => {

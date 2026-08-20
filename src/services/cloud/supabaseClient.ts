@@ -141,6 +141,80 @@ export class SupabaseService {
   }
 
   /**
+   * Sign in with Email and Password
+   */
+  public static async signInWithPassword(email: string, password: string): Promise<{ user?: User | null; error?: string }> {
+    const client = getSupabaseClient();
+    if (!client) {
+      return { error: 'Supabase não está configurado.' };
+    }
+
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim(),
+      });
+
+      if (error) return { error: error.message };
+      return { user: data.user };
+    } catch (err: any) {
+      return { error: err.message || 'Falha ao autenticar com email/senha.' };
+    }
+  }
+
+  /**
+   * Sign up with Email and Password
+   */
+  public static async signUp(email: string, password: string, displayName?: string): Promise<{ user?: User | null; session?: any; error?: string }> {
+    const client = getSupabaseClient();
+    if (!client) {
+      return { error: 'Supabase não está configurado.' };
+    }
+
+    try {
+      const { data, error } = await client.auth.signUp({
+        email: email.trim(),
+        password: password.trim(),
+        options: {
+          data: {
+            display_name: displayName || email.split('@')[0],
+          },
+        },
+      });
+
+      if (error) return { error: error.message };
+      return { user: data.user, session: data.session };
+    } catch (err: any) {
+      return { error: err.message || 'Falha ao criar conta.' };
+    }
+  }
+
+  /**
+   * Sign in with Magic Link / OTP
+   */
+  public static async signInWithOtp(email: string, redirectTo?: string): Promise<{ error?: string }> {
+    const client = getSupabaseClient();
+    if (!client) {
+      return { error: 'Supabase não está configurado.' };
+    }
+
+    try {
+      const targetUrl = redirectTo || (typeof window !== 'undefined' ? window.location.origin : '');
+      const { error } = await client.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: targetUrl,
+        },
+      });
+
+      if (error) return { error: error.message };
+      return {};
+    } catch (err: any) {
+      return { error: err.message || 'Falha ao enviar Magic Link.' };
+    }
+  }
+
+  /**
    * Sign in with Google OAuth
    */
   public static async signInWithGoogle(redirectTo?: string): Promise<{ url?: string | null; error?: string }> {

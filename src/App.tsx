@@ -18,8 +18,8 @@ import { PlaytestArena } from './components/PlaytestArena';
 import { CardProvider } from './services/cardProvider';
 import { SetSyncService } from './services/setSyncService';
 import { StorageService } from './services/storage';
-import { SyncService } from './services/sync/SyncService';
-import { AuthService } from './services/sync/AuthService';
+import { SyncService } from './services/cloud/sync/SyncService';
+import { RealtimeSyncService } from './services/cloud/sync/RealtimeSyncService';
 import { AICoach } from './components/AICoach';
 import { MarketView } from './components/market/MarketView';
 import { TradeManagerView } from './components/trades/TradeManagerView';
@@ -53,10 +53,14 @@ export default function App() {
     StorageService.init().catch((err) => {
       console.warn('StorageService.init failed:', err);
     });
-    const user = AuthService.getCurrentUser();
-    if (user) {
-      SyncService.syncNow().catch(() => {});
-    }
+
+    const unsubscribe = RealtimeSyncService.subscribeToRemoteUpdates(() => {
+      setCollectionVersion((v) => v + 1);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

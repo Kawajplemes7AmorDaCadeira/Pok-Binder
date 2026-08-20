@@ -7,8 +7,17 @@ import { getSupabaseClient } from '../supabaseClient';
 import { CollectionItemRow } from '../types';
 import { CollectionItemEntity } from '../../../types/db';
 import { CardCondition, CardLanguage, CardVariant } from '../../../types';
+import { toValidUUID } from '../../../database/idUtils';
+import { SyncStatusService } from '../sync/SyncStatusService';
 
 export class SupabaseCollectionRepository {
+  private static checkSchemaError(error: any) {
+    if (!error) return;
+    if (error.code === 'PGRST205' || (error.message && (error.message.includes('schema cache') || error.message.includes('does not exist')))) {
+      SyncStatusService.update({ isSchemaMissing: true, state: 'SCHEMA_MISSING' });
+    }
+  }
+
   /**
    * Fetch all active collection items for the authenticated user
    */
@@ -23,19 +32,24 @@ export class SupabaseCollectionRepository {
         .is('deleted_at', null);
 
       if (error) {
-        console.error('SupabaseCollectionRepository.getAll error:', error);
+        this.checkSchemaError(error);
+        if (error.code !== 'PGRST205') {
+          console.warn('SupabaseCollectionRepository.getAll error:', error.message || error);
+        }
         return [];
       }
 
+      // If successful, reset schema missing flag
+      SyncStatusService.update({ isSchemaMissing: false });
       return (data || []).map(this.mapRowToEntity);
-    } catch (err) {
-      console.error('SupabaseCollectionRepository.getAll exception:', err);
+    } catch (err: any) {
+      this.checkSchemaError(err);
       return [];
     }
   }
 
   /**
-   * Atomic Quantity Increment using PostgreSQL RPC (Concurrency-safe)
+   * Atomic Quantity Increment using PostgreSQL RPC (Concurrency-safe) with Direct Table Fallback
    */
   public static async atomicIncrement(params: {
     cardId: string;
@@ -61,8 +75,49 @@ export class SupabaseCollectionRepository {
       });
 
       if (error) {
-        console.error('SupabaseCollectionRepository.atomicIncrement error:', error);
-        return null;
+        // Fallback to direct table query & upsert
+        const { data: { user } } = await client.auth.getUser();
+        if (!user) return null;
+
+        const { data: existingRows } = await client
+          .from('collection_items')
+          .select('*')
+          .eq('card_id', params.cardId)
+          .eq('variant', params.variant)
+          .eq('condition', params.condition)
+          .eq('language', params.language)
+          .is('deleted_at', null)
+          .limit(1);
+
+        const existing = existingRows && existingRows[0];
+        const newQty = (existing ? existing.quantity : 0) + params.delta;
+        const rowId = toValidUUID(existing ? existing.id : params.itemId);
+
+        const { data: upserted, error: upsertErr } = await client
+          .from('collection_items')
+          .upsert({
+            id: rowId,
+            user_id: user.id,
+            card_id: params.cardId,
+            variant: params.variant,
+            condition: params.condition,
+            language: params.language,
+            quantity: newQty,
+            notes: params.notes || (existing ? existing.notes : null),
+            deleted_at: null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id,card_id,variant,condition,language' })
+          .select()
+          .single();
+
+        if (upsertErr) {
+          this.checkSchemaError(upsertErr);
+          if (upsertErr.code !== 'PGRST205') {
+            console.warn('Fallback direct upsert failed:', upsertErr.message || upsertErr);
+          }
+          return null;
+        }
+        return upserted ? this.mapRowToEntity(upserted) : null;
       }
 
       return data ? this.mapRowToEntity(data) : null;
@@ -73,7 +128,7 @@ export class SupabaseCollectionRepository {
   }
 
   /**
-   * Atomic Quantity Decrement using PostgreSQL RPC
+   * Atomic Quantity Decrement using PostgreSQL RPC with Direct Table Fallback
    */
   public static async atomicDecrement(params: {
     cardId: string;
@@ -95,8 +150,42 @@ export class SupabaseCollectionRepository {
       });
 
       if (error) {
-        console.error('SupabaseCollectionRepository.atomicDecrement error:', error);
-        return null;
+        // Fallback to direct table decrement/delete
+        const { data: { user } } = await client.auth.getUser();
+        if (!user) return null;
+
+        const { data: existingRows } = await client
+          .from('collection_items')
+          .select('*')
+          .eq('card_id', params.cardId)
+          .eq('variant', params.variant)
+          .eq('condition', params.condition)
+          .eq('language', params.language)
+          .is('deleted_at', null)
+          .limit(1);
+
+        const existing = existingRows && existingRows[0];
+        if (!existing) return null;
+
+        const newQty = Math.max(0, existing.quantity - params.delta);
+        const isDeleted = newQty <= 0;
+
+        const { data: updated, error: updateErr } = await client
+          .from('collection_items')
+          .update({
+            quantity: newQty,
+            deleted_at: isDeleted ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id)
+          .select()
+          .single();
+
+        if (updateErr) {
+          console.error('Fallback decrement update failed:', updateErr);
+          return null;
+        }
+        return updated ? this.mapRowToEntity(updated) : null;
       }
 
       return data ? this.mapRowToEntity(data) : null;
@@ -115,7 +204,7 @@ export class SupabaseCollectionRepository {
 
     try {
       const row: Partial<CollectionItemRow> = {
-        id: item.id,
+        id: toValidUUID(item.id),
         user_id: userId,
         card_id: item.cardPrintId,
         variant: item.variant,
@@ -132,12 +221,15 @@ export class SupabaseCollectionRepository {
       });
 
       if (error) {
-        console.error('SupabaseCollectionRepository.upsert error:', error);
+        this.checkSchemaError(error);
+        if (error.code !== 'PGRST205') {
+          console.warn('SupabaseCollectionRepository.upsert error:', error.message || error);
+        }
         return false;
       }
       return true;
-    } catch (err) {
-      console.error('SupabaseCollectionRepository.upsert exception:', err);
+    } catch (err: any) {
+      this.checkSchemaError(err);
       return false;
     }
   }
@@ -151,7 +243,7 @@ export class SupabaseCollectionRepository {
 
     try {
       const rows: Partial<CollectionItemRow>[] = items.map((i) => ({
-        id: i.id,
+        id: toValidUUID(i.id),
         user_id: userId,
         card_id: i.cardPrintId,
         variant: i.variant,
@@ -172,13 +264,16 @@ export class SupabaseCollectionRepository {
           onConflict: 'user_id,card_id,variant,condition,language',
         });
         if (error) {
-          console.error('SupabaseCollectionRepository.bulkUpsert chunk error:', error);
+          this.checkSchemaError(error);
+          if (error.code !== 'PGRST205') {
+            console.warn('SupabaseCollectionRepository.bulkUpsert chunk error:', error.message || error);
+          }
           return false;
         }
       }
       return true;
-    } catch (err) {
-      console.error('SupabaseCollectionRepository.bulkUpsert exception:', err);
+    } catch (err: any) {
+      this.checkSchemaError(err);
       return false;
     }
   }
@@ -201,8 +296,13 @@ export class SupabaseCollectionRepository {
         .update({ deleted_at: new Date().toISOString(), quantity: 0 })
         .match({ card_id: cardId, variant, condition, language });
 
-      return !error;
-    } catch {
+      if (error) {
+        this.checkSchemaError(error);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      this.checkSchemaError(err);
       return false;
     }
   }

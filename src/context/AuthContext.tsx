@@ -7,6 +7,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured, SupabaseService } from '../services/cloud/supabaseClient';
 import { SyncService } from '../services/cloud/sync/SyncService';
+import { LocalMigrationService } from '../services/cloud/sync/LocalMigrationService';
 
 interface AuthContextType {
   user: User | null;
@@ -14,6 +15,9 @@ interface AuthContextType {
   isConfigured: boolean;
   isGuest: boolean;
   signInWithGoogle: () => Promise<{ error?: string }>;
+  signInWithPassword: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, displayName?: string) => Promise<{ error?: string }>;
+  signInWithOtp: (email: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   continueAsGuest: () => void;
 }
@@ -56,6 +60,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(session.user);
           setIsGuest(false);
           SyncService.setUser(session.user.id, session.user.email || null);
+          LocalMigrationService.migrateToCloud(session.user.id).catch(() => {});
+          SyncService.syncNow().catch(() => {});
         } else {
           setUser(null);
           setIsGuest(true);
@@ -69,6 +75,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(newSession.user);
               setIsGuest(false);
               SyncService.setUser(newSession.user.id, newSession.user.email || null);
+              LocalMigrationService.migrateToCloud(newSession.user.id).catch(() => {});
+              SyncService.syncNow().catch(() => {});
             } else {
               setUser(null);
               setIsGuest(true);
@@ -99,6 +107,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {};
   };
 
+  const signInWithPassword = async (email: string, password: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { error: 'Supabase não configurado.' };
+    }
+    const res = await SupabaseService.signInWithPassword(email, password);
+    if (res.error) return { error: res.error };
+    if (res.user) {
+      setUser(res.user);
+      setIsGuest(false);
+      SyncService.setUser(res.user.id, res.user.email || null);
+      SyncService.syncNow().catch(() => {});
+    }
+    return {};
+  };
+
+  const signUp = async (email: string, password: string, displayName?: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { error: 'Supabase não configurado.' };
+    }
+    const res = await SupabaseService.signUp(email, password, displayName);
+    if (res.error) return { error: res.error };
+    if (res.user) {
+      setUser(res.user);
+      setIsGuest(false);
+      SyncService.setUser(res.user.id, res.user.email || null);
+      SyncService.syncNow().catch(() => {});
+    }
+    return {};
+  };
+
+  const signInWithOtp = async (email: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { error: 'Supabase não configurado.' };
+    }
+    return SupabaseService.signInWithOtp(email);
+  };
+
   const signOut = async () => {
     await SupabaseService.signOut();
     setUser(null);
@@ -118,6 +163,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isConfigured: isSupabaseConfigured,
         isGuest,
         signInWithGoogle,
+        signInWithPassword,
+        signUp,
+        signInWithOtp,
         signOut,
         continueAsGuest,
       }}

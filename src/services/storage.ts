@@ -12,6 +12,8 @@ import { DeckRepository } from '../database/repositories/DeckRepository';
 import { FavoriteRepository } from '../database/repositories/FavoriteRepository';
 import { migrateFromLocalStorageIfNeeded } from '../database/migrations/localStorageMigration';
 import { CollectionItemEntity, DeckEntity, FavoriteEntity } from '../types/db';
+import { SyncQueue } from './cloud/sync/SyncQueue';
+import { SyncService } from './cloud/sync/SyncService';
 
 const STORAGE_KEYS = {
   COLLECTION: 'pokebinder_collection_v1',
@@ -167,6 +169,8 @@ export class StorageService {
       (item) => item.cardId === cardId && item.variant === variant && item.language === language
     );
 
+    let finalItem: CollectionItem | undefined;
+
     if (existingIndex >= 0) {
       const newQty = collection[existingIndex].quantity + delta;
       if (newQty <= 0) {
@@ -174,6 +178,7 @@ export class StorageService {
       } else {
         collection[existingIndex].quantity = newQty;
         collection[existingIndex].updatedAt = new Date().toISOString();
+        finalItem = collection[existingIndex];
       }
     } else if (delta > 0) {
       const newItem: CollectionItem = {
@@ -187,10 +192,48 @@ export class StorageService {
         updatedAt: new Date().toISOString(),
       };
       collection.push(newItem);
+      finalItem = newItem;
     }
 
-    this.saveCollection(collection);
+    try {
+      localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(collection));
+    } catch {}
+
     CollectionRepository.updateQuantity(cardId, delta, variant, language, condition).catch(() => {});
+
+    // Enqueue cloud sync operation
+    try {
+      if (delta > 0) {
+        SyncQueue.enqueue({
+          entityType: 'collection',
+          action: 'INCREMENT',
+          data: {
+            cardId,
+            variant,
+            condition,
+            language,
+            delta,
+            itemId: finalItem?.id,
+          },
+        });
+      } else {
+        SyncQueue.enqueue({
+          entityType: 'collection',
+          action: 'DECREMENT',
+          data: {
+            cardId,
+            variant,
+            condition,
+            language,
+            delta: Math.abs(delta),
+          },
+        });
+      }
+      SyncService.flushQueue().catch(() => {});
+    } catch (e) {
+      console.warn('Could not enqueue cloud sync op', e);
+    }
+
     return collection;
   }
 
@@ -335,6 +378,23 @@ export class StorageService {
       updatedAt: deck.updatedAt,
     };
     DeckRepository.save(entity).catch(() => {});
+
+    try {
+      SyncQueue.enqueue({
+        entityType: 'deck',
+        action: 'UPSERT',
+        data: {
+          id: deck.id,
+          name: deck.name,
+          description: deck.description,
+          format: deck.format || 'Standard',
+          coverCardId: deck.coverCardId,
+          cards: deck.cards.map((c) => ({ cardId: c.cardId, quantity: c.quantity })),
+        },
+      });
+      SyncService.flushQueue().catch(() => {});
+    } catch {}
+
     return decks;
   }
 
@@ -342,6 +402,16 @@ export class StorageService {
     const decks = this.getDecks().filter((d) => d.id !== deckId);
     this.saveDecks(decks);
     DeckRepository.delete(deckId).catch(() => {});
+
+    try {
+      SyncQueue.enqueue({
+        entityType: 'deck',
+        action: 'DELETE',
+        data: { id: deckId },
+      });
+      SyncService.flushQueue().catch(() => {});
+    } catch {}
+
     return decks;
   }
 
@@ -360,6 +430,8 @@ export class StorageService {
   public static toggleFavorite(cardId: string): string[] {
     const favorites = this.getFavorites();
     const idx = favorites.indexOf(cardId);
+    const isNowFavorite = idx < 0;
+
     if (idx >= 0) {
       favorites.splice(idx, 1);
     } else {
@@ -367,6 +439,19 @@ export class StorageService {
     }
     localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
     FavoriteRepository.toggle(cardId).catch(() => {});
+
+    try {
+      SyncQueue.enqueue({
+        entityType: 'favorite',
+        action: isNowFavorite ? 'UPSERT' : 'DELETE',
+        data: {
+          cardId,
+          isFavorite: isNowFavorite,
+        },
+      });
+      SyncService.flushQueue().catch(() => {});
+    } catch {}
+
     return favorites;
   }
 

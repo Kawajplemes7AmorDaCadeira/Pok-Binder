@@ -5,6 +5,7 @@
 
 import { getSupabaseClient } from '../supabaseClient';
 import { DeckEntity } from '../../../types/db';
+import { toValidUUID } from '../../../database/idUtils';
 
 export class SupabaseDeckRepository {
   public static async getAll(): Promise<DeckEntity[]> {
@@ -61,9 +62,10 @@ export class SupabaseDeckRepository {
     if (!client) return false;
 
     try {
+      const validDeckId = toValidUUID(deck.id);
       // 1. Upsert deck parent
       const { error: deckErr } = await client.from('decks').upsert({
-        id: deck.id,
+        id: validDeckId,
         user_id: userId,
         name: deck.name,
         description: deck.description || null,
@@ -77,11 +79,11 @@ export class SupabaseDeckRepository {
       if (deckErr) return false;
 
       // 2. Delete and re-insert deck_cards
-      await client.from('deck_cards').delete().eq('deck_id', deck.id);
+      await client.from('deck_cards').delete().eq('deck_id', validDeckId);
 
       if (deck.cards && deck.cards.length > 0) {
         const cardRows = deck.cards.map((c) => ({
-          deck_id: deck.id,
+          deck_id: validDeckId,
           user_id: userId,
           card_id: c.cardPrintId,
           variant: 'normal',
@@ -105,7 +107,7 @@ export class SupabaseDeckRepository {
       const { error } = await client
         .from('decks')
         .update({ deleted_at: new Date().toISOString() })
-        .eq('id', deckId);
+        .eq('id', toValidUUID(deckId));
       return !error;
     } catch {
       return false;

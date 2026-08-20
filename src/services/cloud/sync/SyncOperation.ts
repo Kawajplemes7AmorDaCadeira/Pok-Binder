@@ -53,6 +53,7 @@ export interface CollectionIncrementOperation extends BaseSyncOperation {
     language: CardLanguage;
     delta: number;
     notes?: string;
+    itemId?: string;
   };
 }
 

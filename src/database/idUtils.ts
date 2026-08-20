@@ -70,5 +70,21 @@ export function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  return 'pkb_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Returns the input if it's already a valid UUID, otherwise returns a generated UUID v4
+ */
+export function toValidUUID(input?: string): string {
+  if (input && UUID_REGEX.test(input)) {
+    return input;
+  }
+  return generateUUID();
 }

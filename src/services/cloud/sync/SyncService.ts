@@ -27,6 +27,7 @@ import { WishlistRepository } from '../../../database/repositories/WishlistRepos
 import { PurchaseRepository } from '../../../database/repositories/PurchaseRepository';
 import { TradeRepository } from '../../../database/repositories/TradeRepository';
 import { StorageService } from '../../storage';
+import { RealtimeSyncService } from './RealtimeSyncService';
 
 export class SyncService {
   private static isFlushing = false;
@@ -50,6 +51,7 @@ export class SyncService {
   public static init(userId?: string): void {
     if (userId) {
       this.activeUserId = userId;
+      RealtimeSyncService.subscribe(userId);
     }
 
     if (typeof window !== 'undefined') {
@@ -77,6 +79,7 @@ export class SyncService {
     // Initial flush and sync
     if (this.activeUserId) {
       this.flushQueue();
+      this.syncNow().catch(() => {});
     }
   }
 
@@ -85,6 +88,7 @@ export class SyncService {
       clearInterval(this.syncIntervalTimer);
       this.syncIntervalTimer = null;
     }
+    RealtimeSyncService.unsubscribe();
     this.activeUserId = null;
   }
 

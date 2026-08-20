@@ -2,7 +2,7 @@
  * Reactive Sync Status & Connection State Service
  */
 
-export type SyncState = 'SYNCED' | 'SYNCING' | 'OFFLINE' | 'ERROR' | 'UNCONFIGURED';
+export type SyncState = 'SYNCED' | 'SYNCING' | 'OFFLINE' | 'ERROR' | 'UNCONFIGURED' | 'SCHEMA_MISSING';
 
 export interface SyncStatusInfo {
   state: SyncState;
@@ -13,6 +13,7 @@ export interface SyncStatusInfo {
   errorMessage: string | null;
   userId: string | null;
   userEmail: string | null;
+  isSchemaMissing?: boolean;
 }
 
 type StatusListener = (status: SyncStatusInfo) => void;
@@ -31,6 +32,7 @@ export class SyncStatusService {
     errorMessage: null,
     userId: null,
     userEmail: null,
+    isSchemaMissing: false,
   };
 
   public static init(): void {

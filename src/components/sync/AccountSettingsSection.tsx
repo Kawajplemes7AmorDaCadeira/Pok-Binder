@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
-import { User, Cloud, RefreshCw, LogOut, Download, CheckCircle2, CloudOff, AlertCircle, Key, ExternalLink, Copy, Database } from 'lucide-react';
+import { User, Cloud, RefreshCw, LogOut, Download, CheckCircle2, CloudOff, AlertCircle, Key, ExternalLink, Copy, Database, LogIn, Terminal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { BackupService } from '../../services/backup/backupService';
 import { MigrationWizardModal } from './MigrationWizardModal';
+import { AuthModal } from './AuthModal';
+import { DatabaseSetupModal } from './DatabaseSetupModal';
 import { setCustomSupabaseCredentials, getSupabaseConfig, SupabaseService } from '../../services/cloud/supabaseClient';
 
 export const AccountSettingsSection: React.FC = () => {
   const { user, isConfigured, isGuest, signInWithGoogle, signOut } = useAuth();
   const { status, syncNow } = useSync();
   const [isMigrationOpen, setIsMigrationOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isDbSetupOpen, setIsDbSetupOpen] = useState(false);
   const [isSyncingLocal, setIsSyncingLocal] = useState(false);
 
   const currentConfig = getSupabaseConfig();
@@ -98,19 +102,12 @@ export const AccountSettingsSection: React.FC = () => {
             >
               <LogOut className="w-3.5 h-3.5" /> Sair
             </button>
-          ) : isConfigured ? (
-            <button
-              onClick={() => signInWithGoogle()}
-              className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-600/30 transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <User className="w-3.5 h-3.5" /> Entrar com Google
-            </button>
           ) : (
             <button
-              onClick={() => setShowConfigDetails(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-600/30 transition-all flex items-center gap-1.5 active:scale-95"
             >
-              <Key className="w-3.5 h-3.5" /> Configurar Chave
+              <LogIn className="w-3.5 h-3.5" /> Entrar / Conectar Nuvem
             </button>
           )}
         </div>
@@ -206,14 +203,20 @@ export const AccountSettingsSection: React.FC = () => {
             </div>
           )}
 
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1">
             <button
               onClick={handleSaveCredentials}
               disabled={isTesting}
-              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 disabled:opacity-50 min-w-[160px]"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-              {isTesting ? 'Testando Conexão...' : 'Salvar & Validar Conexão'}
+              {isTesting ? 'Testando Conexão...' : 'Salvar & Validar'}
+            </button>
+            <button
+              onClick={() => setIsDbSetupOpen(true)}
+              className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-colors"
+            >
+              <Terminal className="w-3.5 h-3.5" /> Criar Tabelas SQL
             </button>
             <a
               href="https://supabase.com/dashboard/project/hefrdbyqchvvvqyacbkm/sql/new"
@@ -278,6 +281,12 @@ export const AccountSettingsSection: React.FC = () => {
 
       {/* Migration Modal */}
       <MigrationWizardModal isOpen={isMigrationOpen} onClose={() => setIsMigrationOpen(false)} />
+
+      {/* Auth / Cloud Login Modal */}
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+
+      {/* Database Setup Modal */}
+      <DatabaseSetupModal isOpen={isDbSetupOpen} onClose={() => setIsDbSetupOpen(false)} />
     </div>
   );
 };
