@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
+  Camera,
   CheckCircle,
   DollarSign,
   FolderTree,
@@ -28,9 +29,10 @@ import { InsightCard } from './dashboard/InsightCard';
 interface DashboardProps {
   onNavigate: (tab: any, params?: any) => void;
   onSelectCard: (card: PokemonCard) => void;
+  onOpenScanner?: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectCard }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectCard, onOpenScanner }) => {
   const [sets, setSets] = useState<CardSet[]>([]);
   const [collection, setCollection] = useState<CollectionItem[]>([]);
   const [decks, setDecks] = useState<Deck[]>([]);
@@ -138,6 +140,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectCard }
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {onOpenScanner && (
+              <button
+                onClick={onOpenScanner}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-red-600 via-red-500 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white text-xs font-black transition-all shadow-lg shadow-red-600/30 active:scale-95"
+              >
+                <Camera className="w-4 h-4" /> Escanear Carta
+              </button>
+            )}
+
             <button
               onClick={() => onNavigate('catalog')}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700"

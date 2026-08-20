@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   BookOpen,
+  Camera,
   CheckCircle2,
   Copy,
   FolderTree,
@@ -48,6 +49,7 @@ interface HeaderProps {
   setPreferredLanguage: (lang: CardLanguage) => void;
   onOpenSettings: () => void;
   onOpenAdmin: () => void;
+  onOpenScanner?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -61,6 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
   setPreferredLanguage,
   onOpenSettings,
   onOpenAdmin,
+  onOpenScanner,
 }) => {
   const [isOnline, setIsOnline] = React.useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
@@ -194,6 +197,18 @@ export const Header: React.FC<HeaderProps> = ({
             JA
           </button>
         </div>
+
+        {/* Camera Card Scanner Trigger Button */}
+        {onOpenScanner && (
+          <button
+            onClick={onOpenScanner}
+            className="p-2 rounded-xl bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white shadow-sm shadow-red-600/30 transition-all flex items-center gap-1.5"
+            title="Escanear Carta com a Câmera"
+          >
+            <Camera className="w-4 h-4" />
+            <span className="hidden xl:inline text-xs font-black">Scan</span>
+          </button>
+        )}
 
         {/* Admin Integrity Tool Button */}
         <button

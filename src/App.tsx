@@ -25,6 +25,7 @@ import { MarketView } from './components/market/MarketView';
 import { TradeManagerView } from './components/trades/TradeManagerView';
 import { WishlistView } from './components/wishlist/WishlistView';
 import { CollectionTimeline } from './components/timeline/CollectionTimeline';
+import { CameraCardScanner } from './components/scanner/CameraCardScanner';
 import { CardLanguage, CardVariant, PokemonCard } from './types';
 import { useGlobalState } from './context/GlobalStateContext';
 import { BattleWrapper } from './components/battle/BattleWrapper';
@@ -45,6 +46,7 @@ export default function App() {
   // Modals
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   // Initialize IndexedDB & localStorage migration on startup
   useEffect(() => {
@@ -141,6 +143,7 @@ export default function App() {
         setPreferredLanguage={setPreferredLanguage}
         onOpenSettings={() => setShowSettings(true)}
         onOpenAdmin={() => setShowAdmin(true)}
+        onOpenScanner={() => setShowScanner(true)}
       />
 
       {/* Main Container with Sidebar + Main Workspace */}
@@ -154,6 +157,7 @@ export default function App() {
             <Dashboard
               onNavigate={handleNavigate}
               onSelectCard={(c) => setSelectedCard(c)}
+              onOpenScanner={() => setShowScanner(true)}
             />
           )}
 
@@ -271,7 +275,24 @@ export default function App() {
       </div>
 
       {/* Mobile Bottom Navigation Bar */}
-      <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      <MobileNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenScanner={() => setShowScanner(true)}
+      />
+
+      {/* Live Camera Pokémon Card Scanner */}
+      <CameraCardScanner
+        isOpen={showScanner}
+        onClose={() => setShowScanner(false)}
+        preferredLanguage={preferredLanguage}
+        onCardAddedToCollection={() => {
+          setCollectionVersion((v) => v + 1);
+        }}
+        onSelectCardDetail={(card) => {
+          setSelectedCard(card);
+        }}
+      />
 
       {/* Card Detail & Collection Modal */}
       {selectedCard && (
